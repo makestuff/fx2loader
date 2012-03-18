@@ -163,7 +163,7 @@ int main(int argc, char *argv[]) {
 			fprintf(stderr, "%s\n", error);
 			FAIL(10);
 		}
-		if ( bufAppendConst(&sourceMask, sourceData.length, 0x01, NULL, &error) ) {
+		if ( bufAppendConst(&sourceMask, 0x01, sourceData.length, &error) ) {
 			fprintf(stderr, "%s\n", error);
 			FAIL(11);
 		}
