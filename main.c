@@ -19,11 +19,6 @@
 #include <string.h>
 #include <argtable2.h>
 #include <libusbwrap.h>
-#ifdef WIN32
-	#include <lusb0_usb.h>
-#else
-	#include <usb.h>
-#endif
 #include <libfx2loader.h>
 #include <liberror.h>
 #include <libbuffer.h>
@@ -46,11 +41,11 @@ typedef enum {
 
 int main(int argc, char *argv[]) {
 
-	struct arg_str *vpOpt = arg_str1("v", "vidpid", "<VID:PID>", " vendor ID and product ID (e.g 04B4:8613)");
-	struct arg_lit *helpOpt  = arg_lit0("h", "help", "             print this help and exit");
+	struct arg_str *vpOpt   = arg_str0("v", "vidpid", "<VID:PID>", " vendor ID and product ID (e.g 04B4:8613)");
+	struct arg_lit *helpOpt = arg_lit0("h", "help", "             print this help and exit");
 	struct arg_str *srcOpt = arg_str1(NULL, NULL, "<source>", "             where to read from (<eeprom:<kbitSize> | fileName.hex | fileName.bix | fileName.iic>)");
 	struct arg_str *dstOpt = arg_str0(NULL, NULL, "<destination>", "          where to write to (<ram | eeprom | fileName.hex | fileName.bix | fileName.iic> - defaults to \"ram\")");
-	struct arg_end *endOpt   = arg_end(20);
+	struct arg_end *endOpt = arg_end(20);
 	void* argTable[] = {vpOpt, helpOpt, srcOpt, dstOpt, endOpt};
 	const char *progName = "fx2loader";
 	int returnCode = 0;
@@ -63,7 +58,7 @@ int main(int argc, char *argv[]) {
 	struct Buffer i2cBuffer = {0};
 	const char *srcExt, *dstExt;
 	int eepromSize = 0;
-	struct usb_dev_handle *device = NULL;
+	struct USBDevice *device = NULL;
 	const char *error = NULL;
 
 	// Parse arguments...
@@ -133,57 +128,54 @@ int main(int argc, char *argv[]) {
 	}
 
 	if ( src == SRC_EEPROM || dst == DST_EEPROM || dst == DST_RAM ) {
-		usbInitialise();
-		if ( usbOpenDeviceVP(vpOpt->sval[0], 1, 0, 0, &device, &error) ) {
-			fprintf(stderr, "%s\n", error);
+		if ( !vpOpt->count ) {
+			fprintf(stderr, "Missing VID:PID - try something like \"-v 04b4:8613\"\n");
 			FAIL(5);
+		}
+		if ( usbInitialise(0, &error) ) {
+			FAIL(6);
+		}
+		if ( usbOpenDevice(vpOpt->sval[0], 1, 0, 0, &device, &error) ) {
+			FAIL(7);
 		}
 	}
 
 	// Initialise buffers...
 	//
 	if ( bufInitialise(&sourceData, 1024, 0x00, &error) ) {
-		fprintf(stderr, "%s\n", error);
-		FAIL(6);
+		FAIL(8);
 	}
 	if ( bufInitialise(&sourceMask, 1024, 0x00, &error) ) {
-		fprintf(stderr, "%s\n", error);
-		FAIL(7);
+		FAIL(9);
 	}
 	if ( bufInitialise(&i2cBuffer, 1024, 0x00, &error) ) {
-		fprintf(stderr, "%s\n", error);
-		FAIL(8);
+		FAIL(10);
 	}
 
 	// Read from source...
 	//
 	if ( src == SRC_HEXFILE ) {
 		if ( bufReadFromIntelHexFile(&sourceData, &sourceMask, srcOpt->sval[0], &error) ) {
-			fprintf(stderr, "%s\n", error);
-			FAIL(9);
+			FAIL(11);
 		}
 	} else if ( src == SRC_BIXFILE ) {
 		if ( bufAppendFromBinaryFile(&sourceData, srcOpt->sval[0], &error) ) {
-			fprintf(stderr, "%s\n", error);
-			FAIL(10);
+			FAIL(12);
 		}
 		if ( bufAppendConst(&sourceMask, 0x01, sourceData.length, &error) ) {
-			fprintf(stderr, "%s\n", error);
-			FAIL(11);
+			FAIL(13);
 		}
 	} else if ( src == SRC_IICFILE ) {
 		if ( bufAppendFromBinaryFile(&i2cBuffer, srcOpt->sval[0], &error) ) {
-			fprintf(stderr, "%s\n", error);
-			FAIL(12);
+			FAIL(14);
 		}
 	} else if ( src == SRC_EEPROM ) {
 		if ( fx2ReadEEPROM(device, eepromSize, &i2cBuffer, &error) ) {
-			fprintf(stderr, "%s\n", error);
-			FAIL(13);
+			FAIL(15);
 		}
 	} else {
 		fprintf(stderr, "Internal error UNHANDLED_SRC\n");
-		FAIL(14);
+		FAIL(16);
 	}
 
 	// Write to destination...
@@ -193,16 +185,14 @@ int main(int argc, char *argv[]) {
 		//
 		if ( i2cBuffer.length > 0 ) {
 			if ( i2cReadPromRecords(&sourceData, &sourceMask, &i2cBuffer, &error) ) {
-				fprintf(stderr, "%s\n", error);
-				FAIL(15);
+				FAIL(17);
 			}
 		}
 
 		// Write the data to RAM
 		//
 		if ( fx2WriteRAM(device, sourceData.data, sourceData.length, &error) ) {
-			fprintf(stderr, "%s\n", error);
-			FAIL(16);
+			FAIL(18);
 		}
 	} else if ( dst == DST_EEPROM ) {
 		// If the source data was *not* I2C, construct I2C data from the raw data/mask buffers
@@ -210,28 +200,24 @@ int main(int argc, char *argv[]) {
 		if ( i2cBuffer.length == 0 ) {
 			i2cInitialise(&i2cBuffer, 0x0000, 0x0000, 0x0000, CONFIG_BYTE_400KHZ);
 			if ( i2cWritePromRecords(&i2cBuffer, &sourceData, &sourceMask, &error) ) {
-				fprintf(stderr, "%s\n", error);
-				FAIL(17);
+				FAIL(19);
 			}
 			if ( i2cFinalise(&i2cBuffer, &error) ) {
-				fprintf(stderr, "%s\n", error);
-				FAIL(18);
+				FAIL(20);
 			}
 		}
 
 		// Write the I2C data to the EEPROM
 		//
 		if ( fx2WriteEEPROM(device, i2cBuffer.data, i2cBuffer.length, &error) ) {
-			fprintf(stderr, "%s\n", error);
-			FAIL(19);
+			FAIL(21);
 		}
 	} else if ( dst == DST_HEXFILE ) {
 		// If the source data was I2C, write it to data/mask buffers
 		//
 		if ( i2cBuffer.length > 0 ) {
 			if ( i2cReadPromRecords(&sourceData, &sourceMask, &i2cBuffer, &error) ) {
-				fprintf(stderr, "%s\n", error);
-				FAIL(20);
+				FAIL(22);
 			}
 		}
 
@@ -239,24 +225,21 @@ int main(int argc, char *argv[]) {
 		//
 		//dump(0x00000000, sourceMask.data, sourceMask.length);
 		if ( bufWriteToIntelHexFile(&sourceData, &sourceMask, dstOpt->sval[0], 16, false, &error) ) {
-			fprintf(stderr, "%s\n", error);
-			FAIL(21);
+			FAIL(23);
 		}
 	} else if ( dst == DST_BIXFILE ) {
 		// If the source data was I2C, write it to data/mask buffers
 		//
 		if ( i2cBuffer.length > 0 ) {
 			if ( i2cReadPromRecords(&sourceData, &sourceMask, &i2cBuffer, &error) ) {
-				fprintf(stderr, "%s\n", error);
-				FAIL(22);
+				FAIL(24);
 			}
 		}
 
 		// Write the data buffer out as a binary file
 		//
 		if ( bufWriteBinaryFile(&sourceData, dstOpt->sval[0], 0x00000000, sourceData.length, &error) ) {
-			fprintf(stderr, "%s\n", error);
-			FAIL(23);
+			FAIL(25);
 		}
 	} else if ( dst == DST_IICFILE ) {
 		// If the source data was *not* I2C, construct I2C data from the raw data/mask buffers
@@ -264,33 +247,30 @@ int main(int argc, char *argv[]) {
 		if ( i2cBuffer.length == 0 ) {
 			i2cInitialise(&i2cBuffer, 0x0000, 0x0000, 0x0000, CONFIG_BYTE_400KHZ);
 			if ( i2cWritePromRecords(&i2cBuffer, &sourceData, &sourceMask, &error) ) {
-				fprintf(stderr, "%s\n", error);
-				FAIL(24);
+				FAIL(26);
 			}
 			if ( i2cFinalise(&i2cBuffer, &error) ) {
-				fprintf(stderr, "%s\n", error);
-				FAIL(25);
+				FAIL(27);
 			}
 		}
 
 		// Write the I2C data out as a binary file
 		//
 		if ( bufWriteBinaryFile(&i2cBuffer, dstOpt->sval[0], 0x00000000, i2cBuffer.length, &error) ) {
-			fprintf(stderr, "%s\n", error);
-			FAIL(26);
+			FAIL(28);
 		}
 	} else {
 		fprintf(stderr, "Internal error UNHANDLED_DST\n");
-		FAIL(27);
+		FAIL(29);
 	}
 
 cleanup:
-	if ( device ) {
-		usb_release_interface(device, 0);
-		usb_close(device);
-	}
 	if ( error ) {
-		fx2FreeError(error);
+		fprintf(stderr, "%s: %s\n", argv[0], error);
+		errFree(error);
+	}
+	if ( device ) {
+		usbCloseDevice(device, 0);
 	}
 	if ( i2cBuffer.data ) {
 		bufDestroy(&i2cBuffer);
