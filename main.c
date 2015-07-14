@@ -180,7 +180,7 @@ int main(int argc, char *argv[]) {
 
 		// Write the data to RAM
 		//
-		CHECK_STATUS(fx2WriteRAM(device, sourceData.data, sourceData.length, &error), 18, cleanup);
+		CHECK_STATUS(fx2WriteRAM(device, sourceData.data, (uint32)sourceData.length, &error), 18, cleanup);
 	} else if ( dst == DST_EEPROM ) {
 		// If the source data was *not* I2C, construct I2C data from the raw data/mask buffers
 		//
@@ -192,7 +192,7 @@ int main(int argc, char *argv[]) {
 
 		// Write the I2C data to the EEPROM
 		//
-		CHECK_STATUS(fx2WriteEEPROM(device, i2cBuffer.data, i2cBuffer.length, &error), 21, cleanup);
+		CHECK_STATUS(fx2WriteEEPROM(device, i2cBuffer.data, (uint32)i2cBuffer.length, &error), 21, cleanup);
 	} else if ( dst == DST_HEXFILE ) {
 		// If the source data was I2C, write it to data/mask buffers
 		//
